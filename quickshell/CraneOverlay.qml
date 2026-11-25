@@ -47,6 +47,8 @@ PanelWindow {
     readonly property real pcx: winX + winW / 2 - width / 2
     readonly property real pcy: height / 2 - (winY + winH / 2)
     readonly property string shotUrl: g ? "file://" + g.path : ""
+    // чем меньше окно — тем меньше журавлик (600 px по меньшей стороне = 1.0)
+    readonly property real craneScale: Math.max(0.28, Math.min(1.6, Math.min(winW, winH) / 600))
 
     readonly property real bloomQ: clamp((t - 0.34) / 0.46)
     readonly property real bloomE: smooth(bloomQ)
@@ -179,6 +181,7 @@ PanelWindow {
                 bloom: win.bloomE
                 mirrored: win.flyDir < 0
                 flap: win.flapAngle
+                scale: Qt.vector3d(win.craneScale, win.craneScale, win.craneScale)
             }
         }
     }
