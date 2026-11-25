@@ -10,8 +10,11 @@ Node {
     property string shotUrl: ""
     // 0 — грани собраны в точку, 1 — журавлик раскрыт
     property real bloom: 1
+    // отражённый журавлик — для полёта влево
+    property bool mirrored: false
 
-    readonly property int count: Facets.facets.length
+    readonly property var defs: mirrored ? Facets.facetsMirror : Facets.facets
+    readonly property int count: defs.length
 
     function centroid(f) {
         let x = 0, y = 0;
@@ -48,7 +51,7 @@ Node {
 
             required property int index
 
-            readonly property var f: Facets.facets[index]
+            readonly property var f: crane.defs[index]
             readonly property var c: crane.centroid(f)
             readonly property real p: crane.bloomFor(index)
 
@@ -58,8 +61,8 @@ Node {
             readonly property real sc: 0.10 + 0.90 * crane.easeOutBack(Math.min(1, p * 1.1))
             scale: Qt.vector3d(sc, sc, sc)
             eulerRotation: Qt.vector3d((1 - p) * 8 * ((index % 3) - 1),
-                                       (1 - p) * 10 * ((index % 2) ? 1 : -1),
-                                       (1 - p) * 24 * ((index % 2) ? 1 : -1))
+                                       crane.mirrored ? -(1 - p) * 10 * ((index % 2) ? 1 : -1) : (1 - p) * 10 * ((index % 2) ? 1 : -1),
+                                       crane.mirrored ? -(1 - p) * 24 * ((index % 2) ? 1 : -1) : (1 - p) * 24 * ((index % 2) ? 1 : -1))
 
             CraneFacet {
                 points: facetNode.f.pts.map(pt => [pt[0] - facetNode.c[0],

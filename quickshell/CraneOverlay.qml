@@ -15,6 +15,10 @@ PanelWindow {
     property bool busy: false
     property bool pending: false
     property real t: 0
+    // направление полёта: +1 вправо, -1 влево
+    property real flyDir: 1
+    // насколько высоко улетает
+    property real flyUp: 0.75
 
     readonly property real tFly: 0.82
     readonly property real tEnd: 2.15
@@ -51,8 +55,8 @@ PanelWindow {
 
     readonly property var flightPos: {
         const e = flyE;
-        return Qt.vector3d(pcx + e * Math.min(winW * 0.75, 980),
-                           pcy + e * Math.min(winH * 0.55, 520),
+        return Qt.vector3d(pcx + flyDir * e * Math.min(winW * 0.75, 980),
+                           pcy + e * flyUp * Math.min(winH * 0.55, 520),
                            e * 330);
     }
 
@@ -88,6 +92,8 @@ PanelWindow {
     }
 
     function begin() {
+        flyDir = (req && req.dir) ? (req.dir < 0 ? -1 : 1) : (Math.random() < 0.5 ? -1 : 1);
+        flyUp = 0.55 + Math.random() * 0.35;
         pending = false;
         readyTimer.stop();
         anim.restart();
@@ -158,12 +164,13 @@ PanelWindow {
             id: birdRoot
 
             position: win.flightPos
-            eulerRotation: Qt.vector3d(-6 * win.flyE, -8 - 16 * win.flyE, -8 - 22 * win.flyE)
+            eulerRotation: Qt.vector3d(-6 * win.flyE, -win.flyDir * (8 + 16 * win.flyE), -win.flyDir * (8 + 22 * win.flyE))
             visible: win.busy && win.t > 0.28
 
             Crane3D {
                 shotUrl: win.shotUrl
                 bloom: win.bloomE
+                mirrored: win.flyDir < 0
             }
         }
     }

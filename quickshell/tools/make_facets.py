@@ -98,8 +98,20 @@ for f in out:
         for p in f["pts"]
     ]
 
+mirror = []
+for f in out:
+    pts = [[-p[0], p[1]] for p in f["pts"]][::-1]
+    uvs = [[round(1 - u, 4), v] for u, v in f["uvs"]][::-1]
+    mirror.append({"pts": pts, "uvs": uvs, "z": f["z"], "shade": f["shade"]})
+
 lines = [".pragma library", "", "var facets = ["]
 for f in out:
+    lines.append("    { pts: %s, uvs: %s, z: %s, shade: %s }," % (
+        json.dumps(f["pts"]), json.dumps(f["uvs"]), f["z"], f["shade"]))
+lines.append("];")
+lines.append("")
+lines.append("var facetsMirror = [")
+for f in mirror:
     lines.append("    { pts: %s, uvs: %s, z: %s, shade: %s }," % (
         json.dumps(f["pts"]), json.dumps(f["uvs"]), f["z"], f["shade"]))
 lines.append("];")
