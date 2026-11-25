@@ -52,6 +52,13 @@ PanelWindow {
     readonly property real bloomE: smooth(bloomQ)
     readonly property real flyQ: clamp((t - tFly) / (tEnd - tFly))
     readonly property real flyE: Math.pow(flyQ, 1.18)
+    // взмахи крыльями: начинаются, когда журавлик собран
+    readonly property real flapAngle: {
+        if (t < 0.70)
+            return 0;
+        const w = Math.min(1, (t - 0.70) / 0.18);
+        return Math.sin((t - 0.70) * 11.0) * 24 * w;
+    }
 
     readonly property var flightPos: {
         const e = flyE;
@@ -171,6 +178,7 @@ PanelWindow {
                 shotUrl: win.shotUrl
                 bloom: win.bloomE
                 mirrored: win.flyDir < 0
+                flap: win.flapAngle
             }
         }
     }
