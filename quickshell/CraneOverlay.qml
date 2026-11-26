@@ -1,24 +1,19 @@
 import QtQuick
+import QtQuick.Shapes
+import Qt5Compat.GraphicalEffects
 import Quickshell
 import Quickshell.Wayland
 import QtQuick3D
 import QtQuick3D.Helpers
-import QtQuick.Shapes
-import Qt5Compat.GraphicalEffects
 
-// Один оверлей на монитор: страница складывается в журавлика и улетает.
+// Один оверлей на монитор. Держит список активных анимаций: можно
+// закрывать окна подряд, у каждого будет свой журавлик.
 PanelWindow {
     id: win
 
-    property var req: null
-    property int seq: 0
-    property bool busy: false
-    property bool pending: false
-    property real t: 0
-    // направление полёта: +1 вправо, -1 влево
-    property real flyDir: 1
-    // насколько высоко улетает
-    property real flyUp: 0.75
+    property var requests: null
+    property int reqSeq: 0
+    property int lastId: 0
 
     readonly property real tFly: 0.82
     readonly property real tEnd: 2.15
@@ -38,36 +33,68 @@ PanelWindow {
 
     mask: Region {}
 
-    readonly property var g: req
-    readonly property real winW: g ? g.w : 0
-    readonly property real winH: g ? g.h : 0
-    readonly property real winX: g ? g.x : 0
-    readonly property real winY: g ? g.y : 0
-    // центр окна в 3D-координатах камеры (0,0 — центр экрана)
-    readonly property real pcx: winX + winW / 2 - width / 2
-    readonly property real pcy: height / 2 - (winY + winH / 2)
-    readonly property string shotUrl: g ? "file://" + g.path : ""
-    // чем меньше окно — тем меньше журавлик (600 px по меньшей стороне = 1.0)
-    readonly property real craneScale: Math.max(0.28, Math.min(1.6, Math.min(winW, winH) / 600))
-
-    readonly property real bloomQ: clamp((t - 0.34) / 0.46)
-    readonly property real bloomE: smooth(bloomQ)
-    readonly property real flyQ: clamp((t - tFly) / (tEnd - tFly))
-    readonly property real flyE: Math.pow(flyQ, 1.18)
-    // взмахи крыльями: начинаются, когда журавлик собран
-    readonly property real flapAngle: {
-        if (t < 0.70)
-            return 0;
-        const w = Math.min(1, (t - 0.70) / 0.18);
-        return Math.sin((t - 0.70) * 11.0) * 24 * w;
+    ListModel {
+        id: anims
     }
 
-    readonly property var flightPos: {
-        const e = flyE;
-        return Qt.vector3d(pcx + flyDir * e * Math.min(winW * 0.75, 980),
-                           pcy + e * flyUp * Math.min(winH * 0.55, 520),
-                           e * 330);
+    Timer {
+        interval: 16
+        repeat: true
+        running: anims.count > 0
+        onTriggered: win.tick()
     }
+
+    onRequestsChanged: drain()
+    onReqSeqChanged: drain()
+
+    function drain() {
+        if (!requests)
+            return;
+        let maxId = lastId;
+        for (let i = 0; i < requests.length; i++) {
+            const r = requests[i];
+            if (!r || r.id <= lastId)
+                continue;
+            maxId = Math.max(maxId, r.id);
+            if (r.monitor !== (screen ? screen.name : ""))
+                continue;
+            addAnim(r);
+        }
+        lastId = maxId;
+    }
+
+    function addAnim(r) {
+        const dir = r.dir ? (r.dir < 0 ? -1 : 1) : (Math.random() < 0.5 ? -1 : 1);
+        const up = 0.55 + Math.random() * 0.35;
+        if (anims.count >= 6)
+            anims.remove(0);
+        anims.append({
+            rid: r.id,
+            path: r.path,
+            wx: r.x,
+            wy: r.y,
+            ww: r.w,
+            wh: r.h,
+            dir: dir,
+            up: up,
+            t: 0,
+            t0: Date.now()
+        });
+    }
+
+    function tick() {
+        const now = Date.now();
+        for (let i = anims.count - 1; i >= 0; i--) {
+            const row = anims.get(i);
+            const t = (now - row.t0) / 1000;
+            if (t >= tEnd)
+                anims.remove(i);
+            else
+                anims.setProperty(i, "t", t);
+        }
+    }
+
+    // ---------- расчёты ----------
 
     function clamp(v) {
         return Math.max(0, Math.min(1, v));
@@ -77,87 +104,45 @@ PanelWindow {
         return x * x * (3 - 2 * x);
     }
 
-    onSeqChanged: arm()
-    onReqChanged: arm()
-
-    function arm() {
-        if (!req || !req.path)
-            return;
-        if (req.monitor && req.monitor !== (screen ? screen.name : ""))
-            return;
-        pending = true;
-        t = 0;
-        busy = true;
-        checkReady();
+    function bloomAt(t) {
+        return smooth(clamp((t - 0.34) / 0.46));
     }
 
-    function checkReady() {
-        if (!pending)
-            return;
-        if (probe.status === Image.Ready)
-            begin();
-        else if (probe.status === Image.Error)
-            stopAll();
+    function flyAt(t) {
+        const q = clamp((t - tFly) / (tEnd - tFly));
+        return Math.pow(q, 1.18);
     }
 
-    function begin() {
-        flyDir = (req && req.dir) ? (req.dir < 0 ? -1 : 1) : (Math.random() < 0.5 ? -1 : 1);
-        flyUp = 0.55 + Math.random() * 0.35;
-        pending = false;
-        readyTimer.stop();
-        anim.restart();
+    function flapAt(t) {
+        if (t < 0.70)
+            return 0;
+        const w = Math.min(1, (t - 0.70) / 0.18);
+        return Math.sin((t - 0.70) * 11.0) * 24 * w;
     }
 
-    function stopAll() {
-        pending = false;
-        busy = false;
-        anim.stop();
-        readyTimer.stop();
+    function craneScaleFor(ww, wh) {
+        return Math.max(0.28, Math.min(1.6, Math.min(ww, wh) / 600));
     }
 
-    Image {
-        id: probe
-        source: win.shotUrl
-        visible: false
-        asynchronous: false
-        cache: true
-        onStatusChanged: win.checkReady()
+    function birdPos(wx, wy, ww, wh, dir, up, t) {
+        const e = flyAt(t);
+        const pcx = wx + ww / 2 - width / 2;
+        const pcy = height / 2 - (wy + wh / 2);
+        return Qt.vector3d(pcx + dir * e * Math.min(ww * 0.75, 980),
+                           pcy + e * up * Math.min(wh * 0.55, 520),
+                           e * 330);
     }
 
-    Timer {
-        id: readyTimer
-        interval: 600
-        onTriggered: {
-            if (win.pending)
-                win.begin();
-        }
+    function birdRot(t, dir) {
+        const e = flyAt(t);
+        return Qt.vector3d(-6 * e, -dir * (8 + 16 * e), -dir * (8 + 22 * e));
     }
 
-    onPendingChanged: {
-        if (pending)
-            readyTimer.restart();
-        else
-            readyTimer.stop();
-    }
-
-    SequentialAnimation {
-        id: anim
-
-        NumberAnimation {
-            target: win
-            property: "t"
-            from: 0
-            to: win.tEnd
-            duration: win.tEnd * 1000
-            easing.type: Easing.Linear
-        }
-
-        onFinished: win.busy = false
-    }
+    // ---------- 3D ----------
 
     View3D {
         anchors.fill: parent
-        visible: win.busy
+        visible: anims.count > 0
 
         environment: SceneEnvironment {
             backgroundMode: SceneEnvironment.Transparent
@@ -169,70 +154,101 @@ PanelWindow {
             fieldOfView: 2 * Math.atan((win.height / 2) / 1200) * 180 / Math.PI
         }
 
-        Node {
-            id: birdRoot
+        Repeater3D {
+            model: anims
 
-            position: win.flightPos
-            eulerRotation: Qt.vector3d(-6 * win.flyE, -win.flyDir * (8 + 16 * win.flyE), -win.flyDir * (8 + 22 * win.flyE))
-            visible: win.busy && win.t > 0.28
+            Node {
+                id: birdNode
 
-            Crane3D {
-                shotUrl: win.shotUrl
-                bloom: win.bloomE
-                mirrored: win.flyDir < 0
-                flap: win.flapAngle
-                scale: Qt.vector3d(win.craneScale, win.craneScale, win.craneScale)
-            }
-        }
-    }
+                required property int index
+                required property real wx
+                required property real wy
+                required property real ww
+                required property real wh
+                required property int dir
+                required property real up
+                required property real t
+                required property string path
+                required property int rid
 
-    // лист со скриншотом: сминается, срезая углы, и уходит в точку
-    Item {
-        id: page2d
+                position: win.birdPos(wx, wy, ww, wh, dir, up, t)
+                eulerRotation: win.birdRot(t, dir)
+                visible: t > 0.28
 
-        readonly property real q: win.smooth(win.clamp((win.t - 0.30) / 0.26))
-        readonly property real cut: Math.min(width, height) * (0.02 + 0.30 * q)
-
-        x: win.winX
-        y: win.winY
-        width: win.winW
-        height: win.winH
-        visible: win.busy && win.t >= 0.0 && win.t < 0.62
-        transformOrigin: Item.Center
-        scale: 1 - 0.95 * q
-        rotation: -9 * q
-        opacity: q < 0.75 ? 1 : Math.max(0, 1 - (q - 0.75) / 0.25)
-
-        layer.enabled: true
-        layer.effect: OpacityMask {
-            maskSource: Shape {
-                width: page2d.width
-                height: page2d.height
-
-                ShapePath {
-                    fillColor: "#ffffff"
-                    strokeColor: "transparent"
-
-                    PathSvg {
-                        path: {
-                            const w = page2d.width;
-                            const h = page2d.height;
-                            const c = page2d.cut;
-                            return "M " + c + " 0 L " + (w - c) + " 0 L " + w + " " + c
-                                 + " L " + w + " " + (h - c) + " L " + (w - c) + " " + h
-                                 + " L " + c + " " + h + " L 0 " + (h - c) + " L 0 " + c + " Z";
-                        }
+                Crane3D {
+                    shotUrl: "file://" + path
+                    bloom: win.bloomAt(t)
+                    mirrored: dir < 0
+                    flap: win.flapAt(t)
+                    scale: {
+                        const s = win.craneScaleFor(ww, wh);
+                        return Qt.vector3d(s, s, s);
                     }
                 }
             }
         }
+    }
 
-        Image {
-            anchors.fill: parent
-            source: win.shotUrl
-            asynchronous: false
-            cache: true
-            smooth: true
+    // ---------- листы со скриншотами ----------
+
+    Repeater {
+        model: anims
+
+        Item {
+            id: pageItem
+
+            required property int index
+            required property real wx
+            required property real wy
+            required property real ww
+            required property real wh
+            required property real t
+            required property string path
+
+            readonly property real q: win.smooth(win.clamp((t - 0.30) / 0.26))
+            readonly property real cut: Math.min(width, height) * (0.02 + 0.30 * q)
+
+            x: wx
+            y: wy
+            width: ww
+            height: wh
+            visible: t < 0.62
+            transformOrigin: Item.Center
+            scale: 1 - 0.95 * q
+            rotation: -9 * q
+            opacity: q < 0.75 ? 1 : Math.max(0, 1 - (q - 0.75) / 0.25)
+
+            layer.enabled: true
+            layer.effect: OpacityMask {
+                maskSource: Shape {
+                    width: pageItem.width
+                    height: pageItem.height
+
+                    ShapePath {
+                        fillColor: "#ffffff"
+                        strokeColor: "transparent"
+
+                        PathSvg {
+                            path: {
+                                const w = pageItem.width;
+                                const h = pageItem.height;
+                                const c = pageItem.cut;
+                                return "M " + c + " 0 L " + (w - c) + " 0 L " + w + " " + c
+                                     + " L " + w + " " + (h - c) + " L " + (w - c) + " " + h
+                                     + " L " + c + " " + h + " L 0 " + (h - c) + " L 0 " + c + " Z";
+                            }
+                        }
+                    }
+                }
+            }
+
+            Image {
+                anchors.fill: parent
+                source: "file://" + path
+                asynchronous: false
+                cache: true
+                smooth: true
+            }
         }
     }
 }

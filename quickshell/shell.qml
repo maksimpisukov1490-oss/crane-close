@@ -4,21 +4,23 @@ import Quickshell.Io
 import Quickshell.Wayland
 
 // Оверлей закрытия окна: страница складывается в бумажного журавлика
-// и улетает. Управление:
-//   qs ipc -p ~/.config/quickshell/crane call crane animate '<json>'
+// и улетает. Можно закрывать несколько окон подряд — журавликов будет
+// столько же, каждый со своим окном.
 ShellRoot {
     id: root
 
-    property var req: null
-    property int seq: 0
+    property int nextId: 1
+    property var reqs: []
+    property int reqSeq: 0
 
     function animate(payload) {
         try {
             const data = JSON.parse(payload);
             if (!data || !data.path || !data.monitor)
                 return "bad";
-            root.req = data;
-            root.seq++;
+            data.id = root.nextId++;
+            root.reqs = root.reqs.concat([data]).slice(-30);
+            root.reqSeq++;
             return "ok";
         } catch (e) {
             console.log("crane: bad payload:", e);
@@ -34,8 +36,8 @@ ShellRoot {
         }
 
         function reset(): void {
-            root.req = null;
-            root.seq++;
+            root.nextId++;
+            root.reqSeq++;
         }
 
         function ping(): string {
@@ -50,8 +52,8 @@ ShellRoot {
             required property ShellScreen modelData
 
             screen: modelData
-            req: root.req
-            seq: root.seq
+            requests: root.reqs
+            reqSeq: root.reqSeq
         }
     }
 }
