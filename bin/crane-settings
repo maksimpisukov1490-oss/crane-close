@@ -23,6 +23,9 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, GLib, Adw  # noqa: E402
 
+gi.require_version("Graphene", "1.0")
+from gi.repository import Graphene  # noqa: E402
+
 import cairo  # noqa: E402
 
 SETTINGS = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "crane" / "config.json"
@@ -236,109 +239,61 @@ def draw_crane(cr, x, y, s, rot, alpha):
     cr.restore()
 
 
+def draw_page_content(cr, w, h):
+    """Страница-макет: рисуется и в окне, и в PNG для оверлея."""
+    cr.set_source_rgba(0.956, 0.945, 0.918, 1)
+    rounded(cr, 0, 0, w, h, 12)
+    cr.fill()
+    cr.save()
+    rounded(cr, 0, 0, w, h, 12)
+    cr.clip()
+    cr.set_source_rgba(0.902, 0.631, 0.357, 1)
+    cr.rectangle(0, 0, w, h * 0.09)
+    cr.fill()
+    cr.restore()
+    cr.set_source_rgba(0.10, 0.10, 0.12, 1)
+    cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+    cr.set_font_size(h * 0.14)
+    ext = cr.text_extents("ОКНО")
+    cr.move_to((w - ext.width) / 2, h * 0.44)
+    cr.show_text("ОКНО")
+    cr.set_source_rgba(0.35, 0.35, 0.40, 1)
+    cr.set_font_size(h * 0.045)
+    ext = cr.text_extents("проверка эффекта")
+    cr.move_to((w - ext.width) / 2, h * 0.56)
+    cr.show_text("проверка эффекта")
+    cr.set_source_rgba(0.82, 0.80, 0.76, 1)
+    for i in range(3):
+        cr.rectangle(w * 0.12, h * (0.68 + i * 0.08), w * (0.6 - i * 0.12), h * 0.03)
+        cr.fill()
+
+
 class Preview(Gtk.DrawingArea):
     def __init__(self):
         super().__init__()
-        self.effect = "origami"
-        self.phase0 = time.monotonic()
         self.set_draw_func(self.draw)
-        self.timer = GLib.timeout_add(16, self.tick)
-        self.connect("destroy", self.on_destroy)
 
-    def set_effect(self, effect):
-        self.effect = effect
-        self.phase0 = time.monotonic()
-        self.queue_draw()
-
-    def on_destroy(self, *_):
-        if self.timer:
-            GLib.source_remove(self.timer)
-            self.timer = 0
-
-    def tick(self):
-        if not self.timer:
-            return False
-        self.queue_draw()
-        return True
-
-    def cycle(self):
-        return 4.6 if self.effect == "origami" else 3.8
-
-    def progress(self):
-        t = (time.monotonic() - self.phase0) % self.cycle()
-        start, dur = 1.4, (2.5 if self.effect == "origami" else 1.4)
-        if t < start:
-            return 0.0
-        return min(1.0, (t - start) / dur)
+    def page_size(self, w, h):
+        pw = min(w * 0.64, 560)
+        return pw, pw * 0.56
 
     def draw(self, area, cr, w, h):
-        cr.set_source_rgba(0, 0, 0, 0)
-        cr.paint()
-        # фон
         g = cairo.LinearGradient(0, 0, w, h)
         g.add_color_stop_rgb(0, 0.11, 0.11, 0.14)
         g.add_color_stop_rgb(1, 0.07, 0.07, 0.09)
         cr.set_source(g)
         cr.rectangle(0, 0, w, h)
         cr.fill()
-
-        pw = min(w * 0.64, 560)
-        ph = pw * 0.56
-        cx, cy = w / 2, h / 2
-        p = self.progress()
-        eff = self.effect
-        float_y = math.sin((time.monotonic() - self.phase0) * 1.2) * 2.5 if p == 0 else 0
-
-        if p <= 0 or eff == "origami":
-            if eff == "origami":
-                if p <= 0:
-                    draw_page(cr, pw, ph, dx=cx, dy=cy + float_y)
-                else:
-                    q = min(1.0, p / 0.4)
-                    shrink = 1 - 0.95 * q
-                    draw_page(cr, pw, ph, alpha=1 - 0.2 * q, sx=shrink, sy=shrink,
-                              rot=-0.25 * q, dx=cx, dy=cy)
-                    if p > 0.3:
-                        f = min(1.0, (p - 0.3) / 0.7)
-                        fx = cx + f * w * 0.26
-                        fy = cy - f * h * 0.34
-                        draw_crane(cr, fx, fy, 1.15, -0.25 + f * 0.2, 1 - max(0, f - 0.8) * 5)
-            else:
-                draw_page(cr, pw, ph, dx=cx, dy=cy + float_y)
-            return
-
-        if eff == "fade":
-            draw_page(cr, pw, ph, alpha=1 - p, dx=cx, dy=cy)
-        elif eff == "cube":
-            ang = p * math.pi / 2
-            draw_page(cr, pw, ph, sx=max(0.02, math.cos(ang)), shade=p * 0.25,
-                      dx=cx, dy=cy)
-        elif eff == "flip":
-            ang = p * math.pi / 2
-            draw_page(cr, pw, ph, sy=max(0.02, math.cos(ang)), shade=p * 0.3,
-                      dx=cx, dy=cy)
-        elif eff == "doors":
-            q = 1 - p
-            # левая створка
-            cr.save()
-            cr.rectangle(0, 0, w / 2, h)
-            cr.clip()
-            cr.translate(cx - pw / 2, 0)
-            cr.scale(max(0.01, q), 1)
-            draw_page(cr, pw, ph, shade=(1 - q) * 0.5, dx=pw / 2, dy=cy)
-            cr.restore()
-            # правая
-            cr.save()
-            cr.rectangle(w / 2, 0, w / 2, h)
-            cr.clip()
-            cr.translate(cx + pw / 2, 0)
-            cr.scale(max(0.01, q), 1)
-            draw_page(cr, pw, ph, shade=(1 - q) * 0.5, dx=-pw / 2, dy=cy)
-            cr.restore()
-        elif eff == "vortex":
-            s = max(0.02, 1 - 0.98 * p)
-            draw_page(cr, pw, ph, sx=s, sy=s, rot=p * math.pi * 1.6, alpha=1 - p,
-                      dx=cx, dy=cy)
+        pw, ph = self.page_size(w, h)
+        x = (w - pw) / 2
+        y = (h - ph) / 2
+        cr.set_source_rgba(0, 0, 0, 0.45)
+        rounded(cr, x + 8, y + 14, pw, ph, 12)
+        cr.fill()
+        cr.save()
+        cr.translate(x, y)
+        draw_page_content(cr, pw, ph)
+        cr.restore()
 
 
 # --------------------------------------------------------------------------
@@ -382,6 +337,7 @@ class SettingsApp(Adw.Application):
         self.status = None
         self.effect_label = None
         self.listbox = None
+        self.win = None
 
     def do_activate(self):
         Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.PREFER_DARK)
@@ -526,15 +482,98 @@ class SettingsApp(Adw.Application):
         right.append(self.status)
 
         root.append(right)
+        self.win = win
         win.present()
         self.update_effect_label()
+
+        GLib.timeout_add(700, self.first_preview)
+        GLib.timeout_add(4500, self.preview_tick)
+
+    def first_preview(self):
+        self.send_preview()
+        return False
+
+    def preview_tick(self):
+        if self.win is not None and self.win.is_active():
+            self.send_preview()
+        return True
+
+    def window_geometry(self):
+        try:
+            out = subprocess.run(["hyprctl", "-j", "clients"], capture_output=True, text=True, timeout=3)
+            clients = json.loads(out.stdout)
+            client = next((c for c in clients if c.get("title") == "Закрытие окон"), None)
+            if not client:
+                return None
+            mout = subprocess.run(["hyprctl", "-j", "monitors"], capture_output=True, text=True, timeout=3)
+            monitors = json.loads(mout.stdout)
+            mon = monitors[client.get("monitor", 0)]
+            return client, mon
+        except Exception:
+            return None
+
+    def send_preview(self):
+        if self.preview is None or self.win is None:
+            return
+        if not self.win.is_active():
+            return
+        w = self.preview.get_width()
+        h = self.preview.get_height()
+        if w <= 0 or h <= 0:
+            return
+        geo = self.window_geometry()
+        if not geo:
+            return
+        client, mon = geo
+
+        try:
+            res = self.preview.compute_point(self.win, Graphene.Point(0, 0))
+            if isinstance(res, tuple):
+                ok, pt = res
+                if not ok:
+                    return
+            else:
+                pt = res
+        except Exception:
+            return
+        if pt is None:
+            return
+
+        pw, ph = self.preview.page_size(w, h)
+        px = pt.x + (w - pw) / 2
+        py = pt.y + (h - ph) / 2
+
+        cache = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "crane"
+        cache.mkdir(parents=True, exist_ok=True)
+        shot = cache / "preview.png"
+        surf = cairo.ImageSurface(cairo.FORMAT_RGB24, int(pw), int(ph))
+        cr = cairo.Context(surf)
+        draw_page_content(cr, pw, ph)
+        surf.write_to_png(str(shot))
+
+        payload = {
+            "effect": self.effect,
+            "path": str(shot),
+            "x": int(round(client["at"][0] + px - mon["x"])),
+            "y": int(round(client["at"][1] + py - mon["y"])),
+            "w": int(round(pw)),
+            "h": int(round(ph)),
+            "monitor": mon["name"],
+        }
+        try:
+            subprocess.Popen(
+                ["qs", "ipc", "-p", str(Path.home() / ".config/quickshell/crane"),
+                 "call", "crane", "animate", json.dumps(payload, ensure_ascii=False)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+        except Exception:
+            pass
 
     def update_effect_label(self):
         if self.effect_label is None or self.preview is None:
             return
         name = next((n for e, n, _ in EFFECTS if e == self.effect), self.effect)
         self.effect_label.set_text(name)
-        self.preview.set_effect(self.effect)
 
     def on_row_selected(self, _listbox, row):
         if row is None:
@@ -544,6 +583,7 @@ class SettingsApp(Adw.Application):
         self.update_effect_label()
         if self.status is not None:
             self.status.set_text("")
+        GLib.timeout_add(200, self.first_preview)
 
     def on_test(self, _button):
         self.status.set_text("Открываю образец…")

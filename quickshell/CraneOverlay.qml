@@ -182,6 +182,8 @@ PanelWindow {
             model: anims
 
             Node {
+                id: animNode
+
                 required property int index
                 required property real wx
                 required property real wy
@@ -193,252 +195,32 @@ PanelWindow {
                 required property string path
                 required property string effect
 
-                position: win.birdPos(wx, wy, ww, wh, dir, up, t)
-                eulerRotation: win.birdRot(t, dir)
-                visible: effect === "origami" && t > 0.28
+                Node {
+                    position: win.birdPos(wx, wy, ww, wh, dir, up, t)
+                    eulerRotation: win.birdRot(t, dir)
+                    visible: effect === "origami" && t > 0.28
 
-                Crane3D {
-                    shotUrl: "file://" + path
-                    bloom: win.bloomAt(t)
-                    mirrored: dir < 0
-                    flap: win.flapAt(t)
-                    scale: {
-                        const s = win.craneScaleFor(ww, wh);
-                        return Qt.vector3d(s, s, s);
-                    }
-                }
-            }
-        }
-    }
-
-    // ---------- 2D-эффекты и листы ----------
-
-    Repeater {
-        model: anims
-
-        Item {
-            id: pageWrap
-
-            required property int index
-            required property real wx
-            required property real wy
-            required property real ww
-            required property real wh
-            required property real t
-            required property string path
-            required property string effect
-
-            readonly property real dur: win.effectDur(effect)
-            readonly property real q: win.fx(t, effect)
-            readonly property string src: "file://" + path
-
-            x: wx
-            y: wy
-            width: ww
-            height: wh
-            visible: t < dur
-
-            // ---- Origami: лист сминается ----
-            Item {
-                id: origamiPage
-
-                anchors.fill: parent
-                visible: pageWrap.effect === "origami"
-
-                readonly property real oq: win.smooth(win.clamp((pageWrap.t - 0.30) / 0.26))
-                readonly property real cut: Math.min(width, height) * (0.02 + 0.30 * oq)
-
-                transformOrigin: Item.Center
-                scale: 1 - 0.95 * oq
-                rotation: -9 * oq
-                opacity: oq < 0.75 ? 1 : Math.max(0, 1 - (oq - 0.75) / 0.25)
-
-                layer.enabled: true
-                layer.effect: OpacityMask {
-                    maskSource: Shape {
-                        width: origamiPage.width
-                        height: origamiPage.height
-
-                        ShapePath {
-                            fillColor: "#ffffff"
-                            strokeColor: "transparent"
-
-                            PathSvg {
-                                path: {
-                                    const w = origamiPage.width;
-                                    const h = origamiPage.height;
-                                    const c = parent.cut;
-                                    return "M " + c + " 0 L " + (w - c) + " 0 L " + w + " " + c
-                                         + " L " + w + " " + (h - c) + " L " + (w - c) + " " + h
-                                         + " L " + c + " " + h + " L 0 " + (h - c) + " L 0 " + c + " Z";
-                                }
-                            }
+                    Crane3D {
+                        shotUrl: "file://" + path
+                        bloom: win.bloomAt(t)
+                        mirrored: dir < 0
+                        flap: win.flapAt(t)
+                        scale: {
+                            const s = win.craneScaleFor(ww, wh);
+                            return Qt.vector3d(s, s, s);
                         }
                     }
                 }
 
-                Image {
-                    anchors.fill: parent
-                    source: pageWrap.src
-                    asynchronous: false
-                    cache: true
-                    smooth: true
-                }
-            }
-
-            // ---- Fade ----
-            Image {
-                anchors.fill: parent
-                visible: pageWrap.effect === "fade"
-                source: pageWrap.src
-                asynchronous: false
-                cache: true
-                smooth: true
-                opacity: 1 - pageWrap.q
-            }
-
-            // ---- Cube ----
-            Item {
-                anchors.fill: parent
-                visible: pageWrap.effect === "cube"
-
-                transform: Rotation {
-                    origin.x: parent.width / 2
-                    origin.y: parent.height / 2
-                    axis.x: 0
-                    axis.y: 1
-                    axis.z: 0
-                    angle: -92 * pageWrap.q
-                }
-
-                Image {
-                    anchors.fill: parent
-                    source: pageWrap.src
-                    asynchronous: false
-                    cache: true
-                    smooth: true
-                }
-
-                Rectangle {
-                    anchors.fill: parent
-                    color: "#000000"
-                    opacity: 0.45 * pageWrap.q
-                }
-            }
-
-            // ---- Doors ----
-            Item {
-                anchors.fill: parent
-                visible: pageWrap.effect === "doors"
-
-                Item {
-                    width: parent.width / 2
-                    height: parent.height
-                    clip: true
-
-                    transform: Rotation {
-                        origin.x: 0
-                        origin.y: height / 2
-                        axis.x: 0
-                        axis.y: 1
-                        axis.z: 0
-                        angle: -100 * pageWrap.q
-                    }
-
-                    Image {
-                        width: pageWrap.width
-                        height: pageWrap.height
-                        source: pageWrap.src
-                        asynchronous: false
-                        cache: true
-                        smooth: true
-                    }
-
-                    Rectangle {
-                        anchors.fill: parent
-                        color: "#000000"
-                        opacity: 0.35 * pageWrap.q
-                    }
-                }
-
-                Item {
-                    x: parent.width / 2
-                    width: parent.width / 2
-                    height: parent.height
-                    clip: true
-
-                    transform: Rotation {
-                        origin.x: width
-                        origin.y: height / 2
-                        axis.x: 0
-                        axis.y: 1
-                        axis.z: 0
-                        angle: 100 * pageWrap.q
-                    }
-
-                    Image {
-                        x: -pageWrap.width / 2
-                        width: pageWrap.width
-                        height: pageWrap.height
-                        source: pageWrap.src
-                        asynchronous: false
-                        cache: true
-                        smooth: true
-                    }
-
-                    Rectangle {
-                        anchors.fill: parent
-                        color: "#000000"
-                        opacity: 0.35 * pageWrap.q
-                    }
-                }
-            }
-
-            // ---- Flip ----
-            Item {
-                anchors.fill: parent
-                visible: pageWrap.effect === "flip"
-
-                transform: Rotation {
-                    origin.x: parent.width / 2
-                    origin.y: parent.height / 2
-                    axis.x: 1
-                    axis.y: 0
-                    axis.z: 0
-                    angle: -92 * pageWrap.q
-                }
-
-                Image {
-                    anchors.fill: parent
-                    source: pageWrap.src
-                    asynchronous: false
-                    cache: true
-                    smooth: true
-                }
-
-                Rectangle {
-                    anchors.fill: parent
-                    color: "#000000"
-                    opacity: 0.5 * pageWrap.q
-                }
-            }
-
-            // ---- Vortex ----
-            Item {
-                anchors.fill: parent
-                visible: pageWrap.effect === "vortex"
-
-                transformOrigin: Item.Center
-                scale: 1 - 0.97 * pageWrap.q
-                rotation: 540 * pageWrap.q
-                opacity: 1 - pageWrap.q
-
-                Image {
-                    anchors.fill: parent
-                    source: pageWrap.src
-                    asynchronous: false
-                    cache: true
-                    smooth: true
+                Effect3D {
+                    effect: animNode.effect
+                    path: animNode.path
+                    t: animNode.t
+                    ww: animNode.ww
+                    wh: animNode.wh
+                    cx: animNode.wx + animNode.ww / 2 - win.width / 2
+                    cy: win.height / 2 - (animNode.wy + animNode.wh / 2)
+                    visible: animNode.effect !== "origami"
                 }
             }
         }

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1c1c23"/>
+      <stop offset="1" stop-color="#121216"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="54" fill="url(#bg)"/>
+  <path d="M 168 196 L 196 196" stroke="#D9A05B" stroke-width="6" stroke-linecap="round"/>
+  <!-- дальнее крыло -->
+  <polygon points="92,142 140,130 120,72 100,104" fill="#cfc7b8" stroke="#2a2730" stroke-width="2"/>
+  <!-- хвост -->
+  <polygon points="40,158 98,128 62,186" fill="#e6e0d3" stroke="#2a2730" stroke-width="2"/>
+  <!-- тело -->
+  <polygon points="84,158 132,116 186,140 168,174 116,184" fill="#f6f3ec" stroke="#2a2730" stroke-width="2"/>
+  <!-- шея -->
+  <polygon points="178,138 216,96 230,108 194,150" fill="#f2eee5" stroke="#2a2730" stroke-width="2"/>
+  <!-- голова -->
+  <polygon points="216,96 238,104 224,120" fill="#ece7db" stroke="#2a2730" stroke-width="2"/>
+  <!-- клюв -->
+  <polygon points="238,104 254,112 232,114" fill="#D9A05B" stroke="#2a2730" stroke-width="2"/>
+  <!-- ближнее крыло -->
+  <polygon points="94,150 168,120 160,48 112,88" fill="#fbf9f4" stroke="#2a2730" stroke-width="2"/>
+  <polyline points="94,150 150,60" fill="none" stroke="#2a2730" stroke-opacity="0.35" stroke-width="2"/>
+</svg>

@@ -3,6 +3,6 @@ Type=Application
 Name=Анимация закрытия окна
 Comment=Выбор эффекта закрытия окна в стиле PowerPoint
 Exec=crane-settings
-Icon=preferences-desktop
+Icon=crane-settings
 Terminal=false
 Categories=Settings;
