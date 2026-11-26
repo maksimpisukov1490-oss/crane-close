@@ -33,35 +33,18 @@ Node {
     visible: effect !== "origami" && t < dur + 0.05
 
     readonly property string src: "file://" + path
-    readonly property real W: ww / 100
-    readonly property real H: wh / 100
-
-    Texture {
-        id: texFull
-        source: fx.src
-    }
-    Texture {
-        id: texLeft
-        source: fx.src
-        scaleU: 0.5
-        positionU: 0
-    }
-    Texture {
-        id: texRight
-        source: fx.src
-        scaleU: 0.5
-        positionU: 0.5
-    }
+    readonly property real pageW: ww / 100
+    readonly property real pageH: wh / 100
 
     // ---------- Fade ----------
     Model {
         visible: fx.effect === "fade"
         source: "#Rectangle"
-        scale: Qt.vector3d(fx.W, fx.H, 1)
+        scale: Qt.vector3d(fx.pageW, fx.pageH, 1)
         materials: PrincipledMaterial {
             lighting: PrincipledMaterial.NoLighting
             alphaMode: PrincipledMaterial.Blend
-            baseColorMap: texFull
+            baseColorMap: Texture { source: fx.src }
             baseColor: Qt.rgba(1, 1, 1, 1 - fx.q)
         }
     }
@@ -73,10 +56,10 @@ Node {
 
         Model {
             source: "#Rectangle"
-            scale: Qt.vector3d(fx.W, fx.H, 1)
+            scale: Qt.vector3d(fx.pageW, fx.pageH, 1)
             materials: PrincipledMaterial {
                 lighting: PrincipledMaterial.NoLighting
-                baseColorMap: texFull
+                baseColorMap: Texture { source: fx.src }
             }
         }
 
@@ -84,7 +67,7 @@ Node {
         Model {
             source: "#Rectangle"
             position: Qt.vector3d(fx.ww / 2, 0, -fx.ww * 0.3)
-            scale: Qt.vector3d(fx.ww * 0.6 / 100, fx.H, 1)
+            scale: Qt.vector3d(fx.ww * 0.6 / 100, fx.pageH, 1)
             eulerRotation: Qt.vector3d(0, 90, 0)
             materials: PrincipledMaterial {
                 lighting: PrincipledMaterial.NoLighting
@@ -105,16 +88,16 @@ Node {
             Model {
                 position: Qt.vector3d(fx.ww / 4, 0, 0)
                 source: "#Rectangle"
-                scale: Qt.vector3d(fx.W / 2, fx.H, 1)
+                scale: Qt.vector3d(fx.pageW / 2, fx.pageH, 1)
                 materials: PrincipledMaterial {
                     lighting: PrincipledMaterial.NoLighting
-                    baseColorMap: texLeft
+                    baseColorMap: Texture { source: fx.src; scaleU: 0.5; positionU: 0 }
                 }
             }
             Model {
                 position: Qt.vector3d(fx.ww / 4, 0, -0.7)
                 source: "#Rectangle"
-                scale: Qt.vector3d(fx.W / 2, fx.H, 1)
+                scale: Qt.vector3d(fx.pageW / 2, fx.pageH, 1)
                 materials: PrincipledMaterial {
                     lighting: PrincipledMaterial.NoLighting
                     cullMode: Material.NoCulling
@@ -130,16 +113,16 @@ Node {
             Model {
                 position: Qt.vector3d(-fx.ww / 4, 0, 0)
                 source: "#Rectangle"
-                scale: Qt.vector3d(fx.W / 2, fx.H, 1)
+                scale: Qt.vector3d(fx.pageW / 2, fx.pageH, 1)
                 materials: PrincipledMaterial {
                     lighting: PrincipledMaterial.NoLighting
-                    baseColorMap: texRight
+                    baseColorMap: Texture { source: fx.src; scaleU: 0.5; positionU: 0.5 }
                 }
             }
             Model {
                 position: Qt.vector3d(-fx.ww / 4, 0, -0.7)
                 source: "#Rectangle"
-                scale: Qt.vector3d(fx.W / 2, fx.H, 1)
+                scale: Qt.vector3d(fx.pageW / 2, fx.pageH, 1)
                 materials: PrincipledMaterial {
                     lighting: PrincipledMaterial.NoLighting
                     cullMode: Material.NoCulling
@@ -156,16 +139,16 @@ Node {
 
         Model {
             source: "#Rectangle"
-            scale: Qt.vector3d(fx.W, fx.H, 1)
+            scale: Qt.vector3d(fx.pageW, fx.pageH, 1)
             materials: PrincipledMaterial {
                 lighting: PrincipledMaterial.NoLighting
-                baseColorMap: texFull
+                baseColorMap: Texture { source: fx.src }
             }
         }
         Model {
             position: Qt.vector3d(0, 0, -0.7)
             source: "#Rectangle"
-            scale: Qt.vector3d(fx.W, fx.H, 1)
+            scale: Qt.vector3d(fx.pageW, fx.pageH, 1)
             materials: PrincipledMaterial {
                 lighting: PrincipledMaterial.NoLighting
                 cullMode: Material.NoCulling
@@ -186,11 +169,11 @@ Node {
 
         Model {
             source: "#Rectangle"
-            scale: Qt.vector3d(fx.W, fx.H, 1)
+            scale: Qt.vector3d(fx.pageW, fx.pageH, 1)
             materials: PrincipledMaterial {
                 lighting: PrincipledMaterial.NoLighting
                 alphaMode: PrincipledMaterial.Blend
-                baseColorMap: texFull
+                baseColorMap: Texture { source: fx.src }
                 baseColor: Qt.rgba(1, 1, 1, 1 - fx.q)
             }
         }

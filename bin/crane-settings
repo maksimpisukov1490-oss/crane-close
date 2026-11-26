@@ -527,7 +527,7 @@ class SettingsApp(Adw.Application):
         client, mon = geo
 
         try:
-            res = self.preview.compute_point(self.win, Graphene.Point(0, 0))
+            res = self.preview.compute_point(self.win, Graphene.Point())
             if isinstance(res, tuple):
                 ok, pt = res
                 if not ok:
