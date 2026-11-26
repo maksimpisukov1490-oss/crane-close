@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Настройки анимации закрытия окна.
 
-Список эффектов в стиле переходов PowerPoint. Выбор сохраняется в
+Эффекты в стиле переходов PowerPoint. Выбор сохраняется в
 ~/.config/crane/config.json и используется скриптом crane-close.
 
-Кнопка «Проверить» открывает окно-образец и закрывает его выбранным
-эффектом — можно посмотреть, как это выглядит.
+Слева — список эффектов, справа — живой предпросмотр. Кнопка «Проверить»
+открывает настоящее окно и закрывает его выбранным эффектом.
 """
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -19,22 +20,329 @@ from pathlib import Path
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk, GLib  # noqa: E402
+gi.require_version("Adw", "1")
+from gi.repository import Gtk, GLib, Adw  # noqa: E402
+
+import cairo  # noqa: E402
 
 SETTINGS = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "crane" / "config.json"
 CLOSE_BIN = Path.home() / ".local" / "bin" / "crane-close"
 
 EFFECTS = [
-    ("origami", "Origami", "Окно сминается в бумажного журавлика, он улетает"),
-    ("fade", "Fade", "Плавное растворение, как в PowerPoint"),
-    ("cube", "Cube", "Окно поворачивается гранью куба"),
-    ("doors", "Doors", "Створки расходятся в стороны"),
-    ("flip", "Flip", "Окно переворачивается карточкой"),
-    ("vortex", "Vortex", "Закручивается вихрем в точку"),
+    ("origami", "Origami", "Сминается в бумажного журавлика"),
+    ("fade", "Fade", "Плавно растворяется"),
+    ("cube", "Cube", "Поворот гранью куба"),
+    ("doors", "Doors", "Створки расходятся"),
+    ("flip", "Flip", "Переворот карточкой"),
+    ("vortex", "Vortex", "Закручивается вихрем"),
 ]
 
 EFFECT_IDS = {e[0] for e in EFFECTS}
 PREVIEW_TITLE = "crane-preview"
+
+COL_BG = "#131317"
+COL_SIDE = "#17171C"
+COL_TEXT = "#ECECEF"
+COL_MUTED = "#9A9AA4"
+COL_ACCENT = "#D9A05B"
+COL_LINE = "#2A2A31"
+
+CSS = b"""
+window {
+    background-color: #131317;
+}
+.sidebar {
+    background-color: #17171C;
+    border-right: 1px solid #2A2A31;
+}
+.eyebrow {
+    color: #9A9AA4;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 2px;
+}
+.display {
+    color: #ECECEF;
+    font-size: 26px;
+    font-weight: 700;
+}
+.sub {
+    color: #9A9AA4;
+    font-size: 13px;
+}
+.footnote {
+    color: #6F6F79;
+    font-size: 12px;
+}
+list.effects {
+    background: transparent;
+}
+list.effects row {
+    background: transparent;
+    border-bottom: 1px solid #222228;
+    padding: 0;
+}
+list.effects row:hover {
+    background-color: rgba(255, 255, 255, 0.03);
+}
+list.effects row:selected {
+    background-color: rgba(217, 160, 91, 0.10);
+    border-left: 3px solid #D9A05B;
+}
+.row-pad {
+    padding: 14px 16px 14px 13px;
+}
+.row-index {
+    color: #6F6F79;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+}
+.row-name {
+    color: #ECECEF;
+    font-size: 15px;
+    font-weight: 600;
+}
+.row-desc {
+    color: #9A9AA4;
+    font-size: 12px;
+}
+.preview-pane {
+    background-color: #131317;
+}
+.preview-frame {
+    background-color: #1A1A20;
+    border: 1px solid #2A2A31;
+    border-radius: 18px;
+}
+.primary {
+    background-color: #D9A05B;
+    color: #1A1510;
+    border-radius: 10px;
+    padding: 9px 18px;
+    font-weight: 700;
+    border: none;
+}
+.primary:hover {
+    background-color: #E3AE6C;
+}
+.primary:active {
+    background-color: #C89150;
+}
+.status {
+    color: #9A9AA4;
+    font-size: 12px;
+}
+.preview-win {
+    background-color: #1A1A20;
+}
+"""
+
+# --------------------------------------------------------------------------
+# рисование предпросмотра
+
+
+def rounded(cr, x, y, w, h, r):
+    cr.new_sub_path()
+    cr.arc(x + w - r, y + r, r, -math.pi / 2, 0)
+    cr.arc(x + w - r, y + h - r, r, 0, math.pi / 2)
+    cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
+    cr.arc(x + r, y + r, r, math.pi, 1.5 * math.pi)
+    cr.close_path()
+
+
+def draw_page(cr, w, h, alpha=1.0, sx=1.0, sy=1.0, rot=0.0, dx=0.0, dy=0.0, shade=0.0):
+    cr.save()
+    cr.translate(dx, dy)
+    cr.rotate(rot)
+    cr.scale(sx, sy)
+    cr.translate(-w / 2, -h / 2)
+    cr.set_source_rgba(0, 0, 0, 0.45 * alpha)
+    rounded(cr, 8, 14, w, h, 12)
+    cr.fill()
+    cr.set_source_rgba(0.956, 0.945, 0.918, alpha)
+    rounded(cr, 0, 0, w, h, 12)
+    cr.fill()
+    # верхняя полоса
+    cr.save()
+    rounded(cr, 0, 0, w, h, 12)
+    cr.clip()
+    cr.set_source_rgba(0.902, 0.631, 0.357, alpha)
+    cr.rectangle(0, 0, w, h * 0.09)
+    cr.fill()
+    cr.restore()
+    # текст
+    cr.set_source_rgba(0.10, 0.10, 0.12, alpha)
+    cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+    cr.set_font_size(h * 0.14)
+    ext = cr.text_extents("ОКНО")
+    cr.move_to((w - ext.width) / 2, h * 0.44)
+    cr.show_text("ОКНО")
+    cr.set_source_rgba(0.35, 0.35, 0.40, alpha)
+    cr.set_font_size(h * 0.045)
+    ext = cr.text_extents("проверка эффекта")
+    cr.move_to((w - ext.width) / 2, h * 0.56)
+    cr.show_text("проверка эффекта")
+    # строки-плашки
+    cr.set_source_rgba(0.82, 0.80, 0.76, alpha)
+    for i in range(3):
+        cr.rectangle(w * 0.12, h * (0.68 + i * 0.08), w * (0.6 - i * 0.12), h * 0.03)
+        cr.fill()
+    if shade > 0:
+        cr.set_source_rgba(0, 0, 0, min(0.65, shade) * alpha)
+        rounded(cr, 0, 0, w, h, 12)
+        cr.fill()
+    cr.restore()
+
+
+CRANE_BODY = [(-42, 2), (-12, -16), (38, -6), (55, 10), (10, 20)]
+CRANE_WING_N = [(-22, -8), (34, -12), (30, -74), (-8, -46)]
+CRANE_WING_F = [(-26, -4), (20, -8), (8, -58), (-16, -32)]
+CRANE_NECK = [(44, -2), (80, -26), (92, -14), (56, 10)]
+CRANE_HEAD = [(80, -26), (96, -22), (86, -10)]
+CRANE_BEAK = [(96, -22), (105, -17), (89, -12)]
+CRANE_TAIL = [(-40, 0), (-88, -22), (-52, 10)]
+
+
+def poly(cr, pts, fill, alpha=1.0, outline=True):
+    cr.new_path()
+    for i, (x, y) in enumerate(pts):
+        if i == 0:
+            cr.move_to(x, y)
+        else:
+            cr.line_to(x, y)
+    cr.close_path()
+    cr.set_source_rgba(*fill, alpha)
+    cr.fill_preserve()
+    if outline:
+        cr.set_source_rgba(0.15, 0.14, 0.16, 0.55 * alpha)
+        cr.set_line_width(1.0)
+        cr.stroke()
+    else:
+        cr.new_path()
+
+
+def draw_crane(cr, x, y, s, rot, alpha):
+    cr.save()
+    cr.translate(x, y)
+    cr.rotate(rot)
+    cr.scale(s, s)
+    poly(cr, CRANE_WING_F, (0.80, 0.78, 0.73), alpha)
+    poly(cr, CRANE_TAIL, (0.86, 0.84, 0.79), alpha)
+    poly(cr, CRANE_BODY, (0.96, 0.95, 0.92), alpha)
+    poly(cr, CRANE_NECK, (0.94, 0.93, 0.90), alpha)
+    poly(cr, CRANE_HEAD, (0.90, 0.88, 0.84), alpha)
+    poly(cr, CRANE_BEAK, (0.85, 0.63, 0.36), alpha)
+    poly(cr, CRANE_WING_N, (0.99, 0.98, 0.95), alpha)
+    cr.restore()
+
+
+class Preview(Gtk.DrawingArea):
+    def __init__(self):
+        super().__init__()
+        self.effect = "origami"
+        self.phase0 = time.monotonic()
+        self.set_draw_func(self.draw)
+        self.timer = GLib.timeout_add(16, self.tick)
+        self.connect("destroy", self.on_destroy)
+
+    def set_effect(self, effect):
+        self.effect = effect
+        self.phase0 = time.monotonic()
+        self.queue_draw()
+
+    def on_destroy(self, *_):
+        if self.timer:
+            GLib.source_remove(self.timer)
+            self.timer = 0
+
+    def tick(self):
+        if not self.timer:
+            return False
+        self.queue_draw()
+        return True
+
+    def cycle(self):
+        return 4.6 if self.effect == "origami" else 3.8
+
+    def progress(self):
+        t = (time.monotonic() - self.phase0) % self.cycle()
+        start, dur = 1.4, (2.5 if self.effect == "origami" else 1.4)
+        if t < start:
+            return 0.0
+        return min(1.0, (t - start) / dur)
+
+    def draw(self, area, cr, w, h):
+        cr.set_source_rgba(0, 0, 0, 0)
+        cr.paint()
+        # фон
+        g = cairo.LinearGradient(0, 0, w, h)
+        g.add_color_stop_rgb(0, 0.11, 0.11, 0.14)
+        g.add_color_stop_rgb(1, 0.07, 0.07, 0.09)
+        cr.set_source(g)
+        cr.rectangle(0, 0, w, h)
+        cr.fill()
+
+        pw = min(w * 0.64, 560)
+        ph = pw * 0.56
+        cx, cy = w / 2, h / 2
+        p = self.progress()
+        eff = self.effect
+        float_y = math.sin((time.monotonic() - self.phase0) * 1.2) * 2.5 if p == 0 else 0
+
+        if p <= 0 or eff == "origami":
+            if eff == "origami":
+                if p <= 0:
+                    draw_page(cr, pw, ph, dx=cx, dy=cy + float_y)
+                else:
+                    q = min(1.0, p / 0.4)
+                    shrink = 1 - 0.95 * q
+                    draw_page(cr, pw, ph, alpha=1 - 0.2 * q, sx=shrink, sy=shrink,
+                              rot=-0.25 * q, dx=cx, dy=cy)
+                    if p > 0.3:
+                        f = min(1.0, (p - 0.3) / 0.7)
+                        fx = cx + f * w * 0.26
+                        fy = cy - f * h * 0.34
+                        draw_crane(cr, fx, fy, 1.15, -0.25 + f * 0.2, 1 - max(0, f - 0.8) * 5)
+            else:
+                draw_page(cr, pw, ph, dx=cx, dy=cy + float_y)
+            return
+
+        if eff == "fade":
+            draw_page(cr, pw, ph, alpha=1 - p, dx=cx, dy=cy)
+        elif eff == "cube":
+            ang = p * math.pi / 2
+            draw_page(cr, pw, ph, sx=max(0.02, math.cos(ang)), shade=p * 0.25,
+                      dx=cx, dy=cy)
+        elif eff == "flip":
+            ang = p * math.pi / 2
+            draw_page(cr, pw, ph, sy=max(0.02, math.cos(ang)), shade=p * 0.3,
+                      dx=cx, dy=cy)
+        elif eff == "doors":
+            q = 1 - p
+            # левая створка
+            cr.save()
+            cr.rectangle(0, 0, w / 2, h)
+            cr.clip()
+            cr.translate(cx - pw / 2, 0)
+            cr.scale(max(0.01, q), 1)
+            draw_page(cr, pw, ph, shade=(1 - q) * 0.5, dx=pw / 2, dy=cy)
+            cr.restore()
+            # правая
+            cr.save()
+            cr.rectangle(w / 2, 0, w / 2, h)
+            cr.clip()
+            cr.translate(cx + pw / 2, 0)
+            cr.scale(max(0.01, q), 1)
+            draw_page(cr, pw, ph, shade=(1 - q) * 0.5, dx=-pw / 2, dy=cy)
+            cr.restore()
+        elif eff == "vortex":
+            s = max(0.02, 1 - 0.98 * p)
+            draw_page(cr, pw, ph, sx=s, sy=s, rot=p * math.pi * 1.6, alpha=1 - p,
+                      dx=cx, dy=cy)
+
+
+# --------------------------------------------------------------------------
+# настройки
 
 
 def load_effect():
@@ -66,134 +374,176 @@ def hypr_client_address(title):
     return None
 
 
-PREVIEW_CSS = b"""
-.preview-page {
-    background-image: linear-gradient(135deg, #24304f 0%, #3f5a96 55%, #8aa0d6 100%);
-}
-.preview-title {
-    color: #ffffff;
-    font-size: 46px;
-    font-weight: 800;
-}
-.preview-sub {
-    color: #d9e2ff;
-    font-size: 18px;
-}
-.preview-note {
-    color: #b9c8ee;
-    font-size: 13px;
-}
-"""
-
-
-class PreviewApp(Gtk.Application):
+class SettingsApp(Adw.Application):
     def __init__(self):
-        super().__init__(application_id="ru.crane.Preview")
+        super().__init__(application_id="ru.crane.Settings")
+        self.effect = load_effect()
+        self.preview = None
+        self.status = None
+        self.effect_label = None
+        self.listbox = None
 
     def do_activate(self):
-        win = Gtk.ApplicationWindow(application=self, title=PREVIEW_TITLE)
-        win.set_default_size(1000, 600)
+        Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.PREFER_DARK)
+
+        win = Adw.ApplicationWindow(application=self, title="Закрытие окон")
+        win.set_default_size(1120, 700)
 
         provider = Gtk.CssProvider()
-        provider.load_from_data(PREVIEW_CSS)
+        provider.load_from_data(CSS)
         Gtk.StyleContext.add_provider_for_display(
             win.get_display(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
 
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        page.add_css_class("preview-page")
-        page.set_halign(Gtk.Align.FILL)
-        page.set_valign(Gtk.Align.FILL)
-        page.set_vexpand(True)
-        page.set_hexpand(True)
+        toolbar = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_title_widget(Adw.WindowTitle(
+            title="Закрытие окон",
+            subtitle="Анимации из PowerPoint"
+        ))
+        toolbar.add_top_bar(header)
 
-        title = Gtk.Label(label="ОКНО")
-        title.add_css_class("preview-title")
-        sub = Gtk.Label(label="образец для проверки анимации")
-        sub.add_css_class("preview-sub")
-        note = Gtk.Label(label="это окно закроется выбранным эффектом")
-        note.add_css_class("preview-note")
+        root = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        toolbar.set_content(root)
+        win.set_content(toolbar)
 
-        page.append(Gtk.Box())  # распорка
-        page.append(title)
-        page.append(sub)
-        page.append(note)
-        page.append(Gtk.Box())
+        # ---- левая колонка ----
+        side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        side.add_css_class("sidebar")
+        side.set_size_request(380, -1)
+        side.set_margin_top(22)
+        side.set_margin_bottom(22)
+        side.set_margin_start(22)
+        side.set_margin_end(20)
 
-        win.set_child(page)
-        win.present()
+        eyebrow = Gtk.Label(label="ЭФФЕКТ")
+        eyebrow.add_css_class("eyebrow")
+        eyebrow.set_xalign(0)
+        side.append(eyebrow)
 
+        display = Gtk.Label(label="Чем закрывать")
+        display.add_css_class("display")
+        display.set_xalign(0)
+        side.append(display)
 
-class SettingsApp(Gtk.Application):
-    def __init__(self):
-        super().__init__(application_id="ru.crane.Settings")
-        self.effect = load_effect()
-        self.buttons = {}
-        self.status = None
+        sub = Gtk.Label(label="Выбери — применится сразу. Работает по SUPER + Q.")
+        sub.add_css_class("sub")
+        sub.set_xalign(0)
+        sub.set_wrap(True)
+        side.append(sub)
 
-    def do_activate(self):
-        win = Gtk.ApplicationWindow(application=self, title="Анимация закрытия окна")
-        win.set_default_size(560, 620)
+        self.listbox = Gtk.ListBox()
+        self.listbox.add_css_class("effects")
+        self.listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.listbox.connect("row-selected", self.on_row_selected)
 
-        header = Gtk.HeaderBar()
-        win.set_titlebar(header)
+        for i, (eid, name, desc) in enumerate(EFFECTS, start=1):
+            row = Gtk.ListBoxRow()
+            row.effect_id = eid
+            pad = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+            pad.add_css_class("row-pad")
 
-        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        root.set_margin_top(18)
-        root.set_margin_bottom(18)
-        root.set_margin_start(18)
-        root.set_margin_end(18)
-        win.set_child(root)
+            idx = Gtk.Label(label=f"{i:02d}")
+            idx.add_css_class("row-index")
+            idx.set_valign(Gtk.Align.START)
+            pad.append(idx)
 
-        intro = Gtk.Label()
-        intro.set_markup(
-            "<span size='large' weight='bold'>Чем закрывать окна</span>\n"
-            "<span size='small' alpha='70%'>Эффекты из PowerPoint. Работают по SUPER + Q.</span>"
-        )
-        intro.set_xalign(0)
-        root.append(intro)
+            texts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            n = Gtk.Label(label=name)
+            n.add_css_class("row-name")
+            n.set_xalign(0)
+            d = Gtk.Label(label=desc)
+            d.add_css_class("row-desc")
+            d.set_xalign(0)
+            texts.append(n)
+            texts.append(d)
+            pad.append(texts)
 
-        group = None
-        for eid, name, desc in EFFECTS:
-            row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-            rb = Gtk.CheckButton(label=f"{name} — {desc}")
-            if group is None:
-                group = rb
-            else:
-                rb.set_group(group)
-            rb.set_active(eid == self.effect)
-            rb.connect("toggled", self.on_toggle, eid)
-            self.buttons[eid] = rb
-            row.append(rb)
-            root.append(row)
+            row.set_child(pad)
+            self.listbox.append(row)
+            if eid == self.effect:
+                self.listbox.select_row(row)
 
-        root.append(Gtk.Separator())
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_vexpand(True)
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_child(self.listbox)
+        side.append(scroller)
+
+        note = Gtk.Label(label="Выбор сохраняется автоматически")
+        note.add_css_class("footnote")
+        note.set_xalign(0)
+        side.append(note)
+
+        root.append(side)
+
+        # ---- правая колонка ----
+        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        right.add_css_class("preview-pane")
+        right.set_hexpand(True)
+        right.set_margin_top(22)
+        right.set_margin_bottom(22)
+        right.set_margin_start(24)
+        right.set_margin_end(24)
+
+        eyebrow2 = Gtk.Label(label="ПРЕДПРОСМОТР")
+        eyebrow2.add_css_class("eyebrow")
+        eyebrow2.set_xalign(0)
+        right.append(eyebrow2)
+
+        frame = Gtk.Box()
+        frame.add_css_class("preview-frame")
+        frame.set_vexpand(True)
+        frame.set_hexpand(True)
+
+        self.preview = Preview()
+        self.preview.effect = self.effect
+        aspect = Gtk.AspectFrame.new(0.5, 0.5, 16 / 9, False)
+        aspect.set_child(self.preview)
+        aspect.set_vexpand(True)
+        frame.append(aspect)
+        right.append(frame)
+
+        bottom = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        self.effect_label = Gtk.Label()
+        self.effect_label.add_css_class("row-name")
+        self.effect_label.set_xalign(0)
+        bottom.append(self.effect_label)
+
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        bottom.append(spacer)
 
         test_btn = Gtk.Button(label="Проверить")
-        test_btn.add_css_class("suggested-action")
+        test_btn.add_css_class("primary")
         test_btn.connect("clicked", self.on_test)
-        root.append(test_btn)
+        bottom.append(test_btn)
+        right.append(bottom)
 
         self.status = Gtk.Label(label="")
+        self.status.add_css_class("status")
         self.status.set_xalign(0)
-        self.status.set_wrap(True)
-        root.append(self.status)
+        right.append(self.status)
 
-        note = Gtk.Label()
-        note.set_markup(
-            "<span size='small' alpha='60%'>Если оверлей не запущен, окно просто закроется.</span>"
-        )
-        note.set_xalign(0)
-        root.append(note)
-
+        root.append(right)
         win.present()
+        self.update_effect_label()
 
-    def on_toggle(self, button, eid):
-        if button.get_active():
-            self.effect = eid
-            save_effect(eid)
-            if self.status:
-                self.status.set_text(f"Выбрано: {eid}")
+    def update_effect_label(self):
+        if self.effect_label is None or self.preview is None:
+            return
+        name = next((n for e, n, _ in EFFECTS if e == self.effect), self.effect)
+        self.effect_label.set_text(name)
+        self.preview.set_effect(self.effect)
+
+    def on_row_selected(self, _listbox, row):
+        if row is None:
+            return
+        self.effect = row.effect_id
+        save_effect(self.effect)
+        self.update_effect_label()
+        if self.status is not None:
+            self.status.set_text("")
 
     def on_test(self, _button):
         self.status.set_text("Открываю образец…")
@@ -225,7 +575,63 @@ class SettingsApp(Gtk.Application):
         if res.returncode != 0:
             GLib.idle_add(self.status.set_text, "Ошибка запуска анимации")
             return
-        GLib.idle_add(self.status.set_text, f"Показал эффект: {self.effect}")
+        GLib.idle_add(self.status.set_text, "Показал на настоящем окне")
+
+
+PREVIEW_CSS = b"""
+.preview-page {
+    background-image: linear-gradient(135deg, #131317 0%, #1b1b22 55%, #24242d 100%);
+}
+.preview-title {
+    color: #f4f1ea;
+    font-size: 46px;
+    font-weight: 800;
+}
+.preview-sub {
+    color: #d9d3c7;
+    font-size: 18px;
+}
+.preview-note {
+    color: #8e8a80;
+    font-size: 13px;
+}
+"""
+
+
+class PreviewApp(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="ru.crane.Preview")
+
+    def do_activate(self):
+        win = Gtk.ApplicationWindow(application=self, title=PREVIEW_TITLE)
+        win.set_default_size(1000, 600)
+
+        provider = Gtk.CssProvider()
+        provider.load_from_data(PREVIEW_CSS)
+        Gtk.StyleContext.add_provider_for_display(
+            win.get_display(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        page.add_css_class("preview-page")
+        page.set_vexpand(True)
+        page.set_hexpand(True)
+
+        title = Gtk.Label(label="ОКНО")
+        title.add_css_class("preview-title")
+        sub = Gtk.Label(label="образец для проверки анимации")
+        sub.add_css_class("preview-sub")
+        note = Gtk.Label(label="это окно закроется выбранным эффектом")
+        note.add_css_class("preview-note")
+
+        page.append(Gtk.Box())
+        page.append(title)
+        page.append(sub)
+        page.append(note)
+        page.append(Gtk.Box())
+
+        win.set_child(page)
+        win.present()
 
 
 def main():
