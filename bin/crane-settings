@@ -1,0 +1,239 @@
+#!/usr/bin/env python3
+"""Настройки анимации закрытия окна.
+
+Список эффектов в стиле переходов PowerPoint. Выбор сохраняется в
+~/.config/crane/config.json и используется скриптом crane-close.
+
+Кнопка «Проверить» открывает окно-образец и закрывает его выбранным
+эффектом — можно посмотреть, как это выглядит.
+"""
+
+import json
+import os
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gtk, GLib  # noqa: E402
+
+SETTINGS = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "crane" / "config.json"
+CLOSE_BIN = Path.home() / ".local" / "bin" / "crane-close"
+
+EFFECTS = [
+    ("origami", "Origami", "Окно сминается в бумажного журавлика, он улетает"),
+    ("fade", "Fade", "Плавное растворение, как в PowerPoint"),
+    ("cube", "Cube", "Окно поворачивается гранью куба"),
+    ("doors", "Doors", "Створки расходятся в стороны"),
+    ("flip", "Flip", "Окно переворачивается карточкой"),
+    ("vortex", "Vortex", "Закручивается вихрем в точку"),
+]
+
+EFFECT_IDS = {e[0] for e in EFFECTS}
+PREVIEW_TITLE = "crane-preview"
+
+
+def load_effect():
+    try:
+        data = json.loads(SETTINGS.read_text())
+        eff = data.get("effect")
+        if eff in EFFECT_IDS:
+            return eff
+    except Exception:
+        pass
+    return "origami"
+
+
+def save_effect(effect):
+    SETTINGS.parent.mkdir(parents=True, exist_ok=True)
+    tmp = SETTINGS.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"effect": effect}, ensure_ascii=False, indent=2) + "\n")
+    tmp.replace(SETTINGS)
+
+
+def hypr_client_address(title):
+    try:
+        out = subprocess.run(["hyprctl", "-j", "clients"], capture_output=True, text=True, timeout=3)
+        for client in json.loads(out.stdout):
+            if client.get("title") == title:
+                return client.get("address")
+    except Exception:
+        pass
+    return None
+
+
+PREVIEW_CSS = b"""
+.preview-page {
+    background-image: linear-gradient(135deg, #24304f 0%, #3f5a96 55%, #8aa0d6 100%);
+}
+.preview-title {
+    color: #ffffff;
+    font-size: 46px;
+    font-weight: 800;
+}
+.preview-sub {
+    color: #d9e2ff;
+    font-size: 18px;
+}
+.preview-note {
+    color: #b9c8ee;
+    font-size: 13px;
+}
+"""
+
+
+class PreviewApp(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="ru.crane.Preview")
+
+    def do_activate(self):
+        win = Gtk.ApplicationWindow(application=self, title=PREVIEW_TITLE)
+        win.set_default_size(1000, 600)
+
+        provider = Gtk.CssProvider()
+        provider.load_from_data(PREVIEW_CSS)
+        Gtk.StyleContext.add_provider_for_display(
+            win.get_display(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        page.add_css_class("preview-page")
+        page.set_halign(Gtk.Align.FILL)
+        page.set_valign(Gtk.Align.FILL)
+        page.set_vexpand(True)
+        page.set_hexpand(True)
+
+        title = Gtk.Label(label="ОКНО")
+        title.add_css_class("preview-title")
+        sub = Gtk.Label(label="образец для проверки анимации")
+        sub.add_css_class("preview-sub")
+        note = Gtk.Label(label="это окно закроется выбранным эффектом")
+        note.add_css_class("preview-note")
+
+        page.append(Gtk.Box())  # распорка
+        page.append(title)
+        page.append(sub)
+        page.append(note)
+        page.append(Gtk.Box())
+
+        win.set_child(page)
+        win.present()
+
+
+class SettingsApp(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="ru.crane.Settings")
+        self.effect = load_effect()
+        self.buttons = {}
+        self.status = None
+
+    def do_activate(self):
+        win = Gtk.ApplicationWindow(application=self, title="Анимация закрытия окна")
+        win.set_default_size(560, 620)
+
+        header = Gtk.HeaderBar()
+        win.set_titlebar(header)
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        root.set_margin_top(18)
+        root.set_margin_bottom(18)
+        root.set_margin_start(18)
+        root.set_margin_end(18)
+        win.set_child(root)
+
+        intro = Gtk.Label()
+        intro.set_markup(
+            "<span size='large' weight='bold'>Чем закрывать окна</span>\n"
+            "<span size='small' alpha='70%'>Эффекты из PowerPoint. Работают по SUPER + Q.</span>"
+        )
+        intro.set_xalign(0)
+        root.append(intro)
+
+        group = None
+        for eid, name, desc in EFFECTS:
+            row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            rb = Gtk.CheckButton(label=f"{name} — {desc}")
+            if group is None:
+                group = rb
+            else:
+                rb.set_group(group)
+            rb.set_active(eid == self.effect)
+            rb.connect("toggled", self.on_toggle, eid)
+            self.buttons[eid] = rb
+            row.append(rb)
+            root.append(row)
+
+        root.append(Gtk.Separator())
+
+        test_btn = Gtk.Button(label="Проверить")
+        test_btn.add_css_class("suggested-action")
+        test_btn.connect("clicked", self.on_test)
+        root.append(test_btn)
+
+        self.status = Gtk.Label(label="")
+        self.status.set_xalign(0)
+        self.status.set_wrap(True)
+        root.append(self.status)
+
+        note = Gtk.Label()
+        note.set_markup(
+            "<span size='small' alpha='60%'>Если оверлей не запущен, окно просто закроется.</span>"
+        )
+        note.set_xalign(0)
+        root.append(note)
+
+        win.present()
+
+    def on_toggle(self, button, eid):
+        if button.get_active():
+            self.effect = eid
+            save_effect(eid)
+            if self.status:
+                self.status.set_text(f"Выбрано: {eid}")
+
+    def on_test(self, _button):
+        self.status.set_text("Открываю образец…")
+        threading.Thread(target=self.run_preview, daemon=True).start()
+
+    def run_preview(self):
+        if not CLOSE_BIN.exists():
+            GLib.idle_add(self.status.set_text, f"Нет скрипта {CLOSE_BIN}")
+            return
+
+        proc = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--preview"])
+        address = None
+        for _ in range(40):
+            time.sleep(0.1)
+            address = hypr_client_address(PREVIEW_TITLE)
+            if address:
+                break
+
+        if not address:
+            proc.terminate()
+            GLib.idle_add(self.status.set_text, "Не нашёл окно образца")
+            return
+
+        time.sleep(0.25)
+        res = subprocess.run(
+            [str(CLOSE_BIN), "--effect", self.effect, address],
+            capture_output=True, text=True
+        )
+        if res.returncode != 0:
+            GLib.idle_add(self.status.set_text, "Ошибка запуска анимации")
+            return
+        GLib.idle_add(self.status.set_text, f"Показал эффект: {self.effect}")
+
+
+def main():
+    if "--preview" in sys.argv:
+        PreviewApp().run()
+    else:
+        SettingsApp().run()
+
+
+if __name__ == "__main__":
+    main()

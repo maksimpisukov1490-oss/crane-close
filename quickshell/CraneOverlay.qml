@@ -7,7 +7,7 @@ import QtQuick3D
 import QtQuick3D.Helpers
 
 // Один оверлей на монитор. Держит список активных анимаций: можно
-// закрывать окна подряд, у каждого будет свой журавлик.
+// закрывать окна подряд, у каждого будет своя анимация.
 PanelWindow {
     id: win
 
@@ -17,6 +17,8 @@ PanelWindow {
 
     readonly property real tFly: 0.82
     readonly property real tEnd: 2.15
+    // эффекты не начинаются, пока окно не закрылось под листом
+    readonly property real hold: 0.22
 
     visible: true
     color: "transparent"
@@ -70,6 +72,7 @@ PanelWindow {
             anims.remove(0);
         anims.append({
             rid: r.id,
+            effect: r.effect || "origami",
             path: r.path,
             wx: r.x,
             wy: r.y,
@@ -77,7 +80,7 @@ PanelWindow {
             wh: r.h,
             dir: dir,
             up: up,
-            t: 0,
+            t: 0.0,
             t0: Date.now()
         });
     }
@@ -87,7 +90,7 @@ PanelWindow {
         for (let i = anims.count - 1; i >= 0; i--) {
             const row = anims.get(i);
             const t = (now - row.t0) / 1000;
-            if (t >= tEnd)
+            if (t >= effectDur(row.effect))
                 anims.remove(i);
             else
                 anims.setProperty(i, "t", t);
@@ -102,6 +105,27 @@ PanelWindow {
     function smooth(v) {
         const x = clamp(v);
         return x * x * (3 - 2 * x);
+    }
+    function easeInOut(v) {
+        const x = clamp(v);
+        return x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
+    }
+
+    function effectDur(e) {
+        switch (e) {
+        case "fade": return 1.50;
+        case "cube": return 1.60;
+        case "doors": return 1.70;
+        case "flip": return 1.60;
+        case "vortex": return 1.60;
+        default: return 2.15;
+        }
+    }
+
+    // прогресс эффекта 0..1 после паузы
+    function fx(t, e) {
+        const d = effectDur(e) - hold - 0.05;
+        return easeInOut((t - hold) / d);
     }
 
     function bloomAt(t) {
@@ -138,7 +162,7 @@ PanelWindow {
         return Qt.vector3d(-6 * e, -dir * (8 + 16 * e), -dir * (8 + 22 * e));
     }
 
-    // ---------- 3D ----------
+    // ---------- 3D (только журавлик) ----------
 
     View3D {
         anchors.fill: parent
@@ -158,8 +182,6 @@ PanelWindow {
             model: anims
 
             Node {
-                id: birdNode
-
                 required property int index
                 required property real wx
                 required property real wy
@@ -169,11 +191,11 @@ PanelWindow {
                 required property real up
                 required property real t
                 required property string path
-                required property int rid
+                required property string effect
 
                 position: win.birdPos(wx, wy, ww, wh, dir, up, t)
                 eulerRotation: win.birdRot(t, dir)
-                visible: t > 0.28
+                visible: effect === "origami" && t > 0.28
 
                 Crane3D {
                     shotUrl: "file://" + path
@@ -189,13 +211,13 @@ PanelWindow {
         }
     }
 
-    // ---------- листы со скриншотами ----------
+    // ---------- 2D-эффекты и листы ----------
 
     Repeater {
         model: anims
 
         Item {
-            id: pageItem
+            id: pageWrap
 
             required property int index
             required property real wx
@@ -204,50 +226,220 @@ PanelWindow {
             required property real wh
             required property real t
             required property string path
+            required property string effect
 
-            readonly property real q: win.smooth(win.clamp((t - 0.30) / 0.26))
-            readonly property real cut: Math.min(width, height) * (0.02 + 0.30 * q)
+            readonly property real dur: win.effectDur(effect)
+            readonly property real q: win.fx(t, effect)
+            readonly property string src: "file://" + path
 
             x: wx
             y: wy
             width: ww
             height: wh
-            visible: t < 0.62
-            transformOrigin: Item.Center
-            scale: 1 - 0.95 * q
-            rotation: -9 * q
-            opacity: q < 0.75 ? 1 : Math.max(0, 1 - (q - 0.75) / 0.25)
+            visible: t < dur
 
-            layer.enabled: true
-            layer.effect: OpacityMask {
-                maskSource: Shape {
-                    width: pageItem.width
-                    height: pageItem.height
+            // ---- Origami: лист сминается ----
+            Item {
+                id: origamiPage
 
-                    ShapePath {
-                        fillColor: "#ffffff"
-                        strokeColor: "transparent"
+                anchors.fill: parent
+                visible: pageWrap.effect === "origami"
 
-                        PathSvg {
-                            path: {
-                                const w = pageItem.width;
-                                const h = pageItem.height;
-                                const c = pageItem.cut;
-                                return "M " + c + " 0 L " + (w - c) + " 0 L " + w + " " + c
-                                     + " L " + w + " " + (h - c) + " L " + (w - c) + " " + h
-                                     + " L " + c + " " + h + " L 0 " + (h - c) + " L 0 " + c + " Z";
+                readonly property real oq: win.smooth(win.clamp((pageWrap.t - 0.30) / 0.26))
+                readonly property real cut: Math.min(width, height) * (0.02 + 0.30 * oq)
+
+                transformOrigin: Item.Center
+                scale: 1 - 0.95 * oq
+                rotation: -9 * oq
+                opacity: oq < 0.75 ? 1 : Math.max(0, 1 - (oq - 0.75) / 0.25)
+
+                layer.enabled: true
+                layer.effect: OpacityMask {
+                    maskSource: Shape {
+                        width: origamiPage.width
+                        height: origamiPage.height
+
+                        ShapePath {
+                            fillColor: "#ffffff"
+                            strokeColor: "transparent"
+
+                            PathSvg {
+                                path: {
+                                    const w = origamiPage.width;
+                                    const h = origamiPage.height;
+                                    const c = parent.cut;
+                                    return "M " + c + " 0 L " + (w - c) + " 0 L " + w + " " + c
+                                         + " L " + w + " " + (h - c) + " L " + (w - c) + " " + h
+                                         + " L " + c + " " + h + " L 0 " + (h - c) + " L 0 " + c + " Z";
+                                }
                             }
                         }
                     }
                 }
+
+                Image {
+                    anchors.fill: parent
+                    source: pageWrap.src
+                    asynchronous: false
+                    cache: true
+                    smooth: true
+                }
             }
 
+            // ---- Fade ----
             Image {
                 anchors.fill: parent
-                source: "file://" + path
+                visible: pageWrap.effect === "fade"
+                source: pageWrap.src
                 asynchronous: false
                 cache: true
                 smooth: true
+                opacity: 1 - pageWrap.q
+            }
+
+            // ---- Cube ----
+            Item {
+                anchors.fill: parent
+                visible: pageWrap.effect === "cube"
+
+                transform: Rotation {
+                    origin.x: parent.width / 2
+                    origin.y: parent.height / 2
+                    axis.x: 0
+                    axis.y: 1
+                    axis.z: 0
+                    angle: -92 * pageWrap.q
+                }
+
+                Image {
+                    anchors.fill: parent
+                    source: pageWrap.src
+                    asynchronous: false
+                    cache: true
+                    smooth: true
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    color: "#000000"
+                    opacity: 0.45 * pageWrap.q
+                }
+            }
+
+            // ---- Doors ----
+            Item {
+                anchors.fill: parent
+                visible: pageWrap.effect === "doors"
+
+                Item {
+                    width: parent.width / 2
+                    height: parent.height
+                    clip: true
+
+                    transform: Rotation {
+                        origin.x: 0
+                        origin.y: height / 2
+                        axis.x: 0
+                        axis.y: 1
+                        axis.z: 0
+                        angle: -100 * pageWrap.q
+                    }
+
+                    Image {
+                        width: pageWrap.width
+                        height: pageWrap.height
+                        source: pageWrap.src
+                        asynchronous: false
+                        cache: true
+                        smooth: true
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        color: "#000000"
+                        opacity: 0.35 * pageWrap.q
+                    }
+                }
+
+                Item {
+                    x: parent.width / 2
+                    width: parent.width / 2
+                    height: parent.height
+                    clip: true
+
+                    transform: Rotation {
+                        origin.x: width
+                        origin.y: height / 2
+                        axis.x: 0
+                        axis.y: 1
+                        axis.z: 0
+                        angle: 100 * pageWrap.q
+                    }
+
+                    Image {
+                        x: -pageWrap.width / 2
+                        width: pageWrap.width
+                        height: pageWrap.height
+                        source: pageWrap.src
+                        asynchronous: false
+                        cache: true
+                        smooth: true
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        color: "#000000"
+                        opacity: 0.35 * pageWrap.q
+                    }
+                }
+            }
+
+            // ---- Flip ----
+            Item {
+                anchors.fill: parent
+                visible: pageWrap.effect === "flip"
+
+                transform: Rotation {
+                    origin.x: parent.width / 2
+                    origin.y: parent.height / 2
+                    axis.x: 1
+                    axis.y: 0
+                    axis.z: 0
+                    angle: -92 * pageWrap.q
+                }
+
+                Image {
+                    anchors.fill: parent
+                    source: pageWrap.src
+                    asynchronous: false
+                    cache: true
+                    smooth: true
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    color: "#000000"
+                    opacity: 0.5 * pageWrap.q
+                }
+            }
+
+            // ---- Vortex ----
+            Item {
+                anchors.fill: parent
+                visible: pageWrap.effect === "vortex"
+
+                transformOrigin: Item.Center
+                scale: 1 - 0.97 * pageWrap.q
+                rotation: 540 * pageWrap.q
+                opacity: 1 - pageWrap.q
+
+                Image {
+                    anchors.fill: parent
+                    source: pageWrap.src
+                    asynchronous: false
+                    cache: true
+                    smooth: true
+                }
             }
         }
     }
