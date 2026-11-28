@@ -195,18 +195,37 @@ PanelWindow {
                 required property string path
                 required property string effect
 
+                // лист-страница журавлика
+                Model {
+                    visible: animNode.effect === "origami" && animNode.t < 0.62
+                    source: "#Rectangle"
+                    readonly property real oq: win.smooth(win.clamp((animNode.t - 0.30) / 0.26))
+                    position: Qt.vector3d(animNode.wx + animNode.ww / 2 - win.width / 2,
+                                          win.height / 2 - (animNode.wy + animNode.wh / 2), 0)
+                    scale: Qt.vector3d(animNode.ww / 100 * (1 - 0.95 * oq),
+                                       animNode.wh / 100 * (1 - 0.95 * oq), 1)
+                    eulerRotation: Qt.vector3d(0, 0, -9 * oq)
+                    materials: PrincipledMaterial {
+                        lighting: PrincipledMaterial.NoLighting
+                        alphaMode: PrincipledMaterial.Blend
+                        baseColorMap: Texture { source: "file://" + animNode.path }
+                        baseColor: Qt.rgba(1, 1, 1, 1 - win.smooth(win.clamp((animNode.t - 0.50) / 0.12)))
+                    }
+                }
+
                 Node {
-                    position: win.birdPos(wx, wy, ww, wh, dir, up, t)
-                    eulerRotation: win.birdRot(t, dir)
-                    visible: effect === "origami" && t > 0.28
+                    position: win.birdPos(animNode.wx, animNode.wy, animNode.ww, animNode.wh,
+                                          animNode.dir, animNode.up, animNode.t)
+                    eulerRotation: win.birdRot(animNode.t, animNode.dir)
+                    visible: animNode.effect === "origami" && animNode.t > 0.28
 
                     Crane3D {
-                        shotUrl: "file://" + path
-                        bloom: win.bloomAt(t)
-                        mirrored: dir < 0
-                        flap: win.flapAt(t)
+                        shotUrl: "file://" + animNode.path
+                        bloom: win.bloomAt(animNode.t)
+                        mirrored: animNode.dir < 0
+                        flap: win.flapAt(animNode.t)
                         scale: {
-                            const s = win.craneScaleFor(ww, wh);
+                            const s = win.craneScaleFor(animNode.ww, animNode.wh);
                             return Qt.vector3d(s, s, s);
                         }
                     }
